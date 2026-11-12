@@ -1,0 +1,167 @@
+name: "Load Secrets"
+description: "Zero-config secret loader with hierarchical overriding for nlkomaru repositories"
+inputs:
+  aws-account-id:
+    description: "AWS Account ID (defaults to your AWS account ID)"
+    required: false
+    default: "161381425016"
+  role-name:
+    description: "IAM Role name configured for GitHub Actions OIDC"
+    required: false
+    default: "github-actions-ssm-role"
+  role-arn:
+    description: "Explicit AWS IAM Role ARN (overrides aws-account-id and role-name if provided)"
+    required: false
+    default: ""
+  aws-region:
+    description: "AWS Region"
+    required: false
+    default: "ap-northeast-1"
+  project:
+    description: "Project name (defaults to repository name)"
+    required: false
+    default: ${{ github.event.repository.name }}
+  env:
+    description: "Environment name (e.g. production, preview)"
+    required: false
+    default: ""
+  export-env:
+    description: "Whether to export loaded secrets to GITHUB_ENV"
+    required: false
+    default: "true"
+  export-json:
+    description: "Path to export secrets as a JSON file (e.g. ${{ runner.temp }}/secrets.json)"
+    required: false
+    default: ""
+
+outputs:
+  secrets-json:
+    description: "All merged secrets as a JSON string"
+    value: ${{ steps.load.outputs.secrets_json }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Determine Role ARN
+      id: role
+      shell: bash
+      env:
+        EXPLICIT_ARN: ${{ inputs.role-arn }}
+        ACCOUNT_ID: ${{ inputs.aws-account-id }}
+        ROLE_NAME: ${{ inputs.role-name }}
+      run: |
+        if [ -n "$EXPLICIT_ARN" ]; then
+          echo "arn=$EXPLICIT_ARN" >> "$GITHUB_OUTPUT"
+        else
+          echo "arn=arn:aws:iam::${ACCOUNT_ID}:role/${ROLE_NAME}" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ steps.role.outputs.arn }}
+        aws-region: ${{ inputs.aws-region }}
+
+    - name: Fetch and Merge SSM Parameters
+      id: load
+      shell: bash
+      env:
+        AWS_REGION: ${{ inputs.aws-region }}
+        PROJECT: ${{ inputs.project }}
+        TARGET_ENV: ${{ inputs.env }}
+        EXPORT_ENV: ${{ inputs.export-env }}
+        EXPORT_JSON_PATH: ${{ inputs.export-json }}
+      run: |
+        set -euo pipefail
+
+        TMP_DIR="$(mktemp -d)"
+        trap 'rm -rf "$TMP_DIR"' EXIT
+
+        fetch_params() {
+          local target_path="${1%/}"
+          local out_file="$2"
+          echo "Fetching SSM parameters from: $target_path" >&2
+
+          local res
+          if ! res=$(aws ssm get-parameters-by-path \
+            --region "$AWS_REGION" \
+            --path "$target_path" \
+            --with-decryption \
+            --output json 2>/dev/null); then
+            echo "{}" > "$out_file"
+            return 0
+          fi
+
+          local prefix="${target_path}/"
+          echo "$res" | jq -c --arg prefix "$prefix" '
+            [ .Parameters[]?
+              | select(.Name | startswith($prefix))
+              | select((.Name | ltrimstr($prefix) | contains("/") | not))
+              | { (.Name | ltrimstr($prefix)): .Value }
+            ] | add // {}
+          ' > "$out_file"
+        }
+
+        # 探索するパス階層（後ろが前を上書き）
+        # 1. /github/nlkomaru/shared (全体共通)
+        fetch_params "/github/nlkomaru/shared" "$TMP_DIR/1_shared.json"
+
+        # 2. /github/nlkomaru/shared/<env> (環境共通)
+        if [ -n "$TARGET_ENV" ]; then
+          fetch_params "/github/nlkomaru/shared/$TARGET_ENV" "$TMP_DIR/2_shared_env.json"
+        else
+          echo "{}" > "$TMP_DIR/2_shared_env.json"
+        fi
+
+        # 3. /github/nlkomaru/<project> (プロジェクト共通)
+        fetch_params "/github/nlkomaru/$PROJECT" "$TMP_DIR/3_project.json"
+
+        # 4. /github/nlkomaru/<project>/<env> (プロジェクト環境固有)
+        if [ -n "$TARGET_ENV" ]; then
+          fetch_params "/github/nlkomaru/$PROJECT/$TARGET_ENV" "$TMP_DIR/4_project_env.json"
+        else
+          echo "{}" > "$TMP_DIR/4_project_env.json"
+        fi
+
+        # 階層順にマージ (1 -> 2 -> 3 -> 4)
+        MERGED_JSON=$(jq -s '.[0] * .[1] * .[2] * .[3]' \
+          "$TMP_DIR/1_shared.json" \
+          "$TMP_DIR/2_shared_env.json" \
+          "$TMP_DIR/3_project.json" \
+          "$TMP_DIR/4_project_env.json")
+
+        # 1. ログ伏字（add-mask）処理
+        jq -r 'to_entries[] | .value' <<< "$MERGED_JSON" | while IFS= read -r val; do
+          while IFS= read -r line; do
+            if [ -n "$line" ]; then
+              echo "::add-mask::$line"
+            fi
+          done <<< "$val"
+        done
+
+        # 2. GITHUB_ENV へのエクスポート
+        if [ "$EXPORT_ENV" = "true" ]; then
+          jq -r 'to_entries[] | "\(.key)\u0000\(.value)\u0000"' <<< "$MERGED_JSON" | while IFS= read -d '' -r key && IFS= read -d '' -r val; do
+            delimiter="$(openssl rand -hex 16)"
+            {
+              echo "${key}<<${delimiter}"
+              echo "${val}"
+              echo "${delimiter}"
+            } >> "$GITHUB_ENV"
+          done
+        fi
+
+        # 3. JSON ファイルへのエクスポート (指定時)
+        if [ -n "$EXPORT_JSON_PATH" ]; then
+          mkdir -p "$(dirname "$EXPORT_JSON_PATH")"
+          echo "$MERGED_JSON" > "$EXPORT_JSON_PATH"
+          echo "Exported secrets JSON to: $EXPORT_JSON_PATH" >&2
+        fi
+
+        # 4. Step output のセット
+        EOF_DELIMITER="$(openssl rand -hex 16)"
+        {
+          echo "secrets_json<<${EOF_DELIMITER}"
+          echo "$MERGED_JSON"
+          echo "${EOF_DELIMITER}"
+        } >> "$GITHUB_OUTPUT"

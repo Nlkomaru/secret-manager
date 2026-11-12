@@ -1,0 +1,14 @@
+{
+  "name": "secret-manager",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Zero-config secret loader and management tooling for nlkomaru projects",
+  "type": "module",
+  "scripts": {
+    "push": "node scripts/push-secrets.mjs",
+    "push:shared": "node scripts/push-secrets.mjs --shared",
+    "tf:init": "tofu -chdir=terraform init",
+    "tf:plan": "tofu -chdir=terraform plan",
+    "tf:apply": "tofu -chdir=terraform apply"
+  }
+}
