@@ -13,6 +13,13 @@ Zero-config secret loader and centralized management for `nlkomaru` projects.
 - **GitHub Actions OIDC** via IAM Role `arn:aws:iam::161381425016:role/github-actions-ssm-role`
 - **Zero GitHub Secrets**: Repositories simply call this action with `permissions: id-token: write`.
 
+### Naming Convention (Scope-Based Naming)
+
+Following *The Art of Readable Code* rule that **larger scopes require longer, more descriptive names**:
+
+- Parameters placed in `/github/nlkomaru/shared/*` are injected into **every repository** via `GITHUB_ENV`. Give them an explicit prefix and descriptive name so they never collide with generic tool variables or project-local secrets (e.g., use `NIKO_CI_AWS_ACCESS_KEY_ID`, `NIKO_CI_BUCKET_NAME`, `NIKO_CI_S3_URL` instead of `AWS_ACCESS_KEY_ID`, `BUCKET_NAME`, `S3_URL`).
+- Project-specific parameters under `/github/nlkomaru/<project>/*` have a narrow scope and can use concise, standard names expected by the application or CLI.
+
 ---
 
 ## How to Use in GitHub Actions
