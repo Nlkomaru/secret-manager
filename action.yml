@@ -20,7 +20,7 @@ inputs:
   project:
     description: "Project name (defaults to repository name)"
     required: false
-    default: ${{ github.event.repository.name }}
+    default: ""
   env:
     description: "Environment name (e.g. production, preview)"
     required: false
@@ -30,7 +30,7 @@ inputs:
     required: false
     default: "true"
   export-json:
-    description: "Path to export secrets as a JSON file (e.g. ${{ runner.temp }}/secrets.json)"
+    description: "Path to export secrets as a JSON file (e.g. runner-temp/secrets.json)"
     required: false
     default: ""
 
@@ -73,6 +73,9 @@ runs:
         EXPORT_JSON_PATH: ${{ inputs.export-json }}
       run: |
         set -euo pipefail
+
+        # Default PROJECT to repository name if not provided
+        PROJECT="${PROJECT:-${GITHUB_REPOSITORY#*/}}"
 
         TMP_DIR="$(mktemp -d)"
         trap 'rm -rf "$TMP_DIR"' EXIT
