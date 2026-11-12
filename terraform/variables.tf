@@ -16,6 +16,12 @@ variable "github_repo_owner" {
   default     = "Nlkomaru"
 }
 
+variable "github_repo_owner_id" {
+  type        = string
+  description = "Immutable numeric GitHub owner ID used in the OIDC sub claim (repo:<owner>@<id>/<repo>@<id>:...)"
+  default     = "76208219"
+}
+
 variable "role_name" {
   type        = string
   description = "IAM Role name for GitHub Actions"
