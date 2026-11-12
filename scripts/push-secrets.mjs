@@ -21,7 +21,10 @@ if (!existsSync(envFilePath)) {
 
 const owner = process.env.GITHUB_OWNER || getArgValue("--owner") || "nlkomaru";
 const project = process.env.PROJECT_NAME || getArgValue("--project") || "omoide";
-const environment = process.env.TARGET_ENV || getArgValue("--env") || "production";
+const isCommonMode = args.includes("--common");
+const environment = isCommonMode
+  ? ""
+  : process.env.TARGET_ENV || getArgValue("--env") || "production";
 const region = process.env.AWS_REGION || getArgValue("--region") || "ap-northeast-1";
 
 const envContent = readFileSync(envFilePath, "utf-8");
@@ -29,7 +32,7 @@ const lines = envContent.split("\n");
 
 console.log(`Pushing secrets from: ${envFilePath}`);
 console.log(
-  `Target: ${isSharedMode ? `/github/${owner}/shared/*` : `/github/${owner}/${project}/${environment}/*`}`
+  `Target: ${isSharedMode ? `/github/${owner}/shared/*` : isCommonMode ? `/github/${owner}/${project}/*` : `/github/${owner}/${project}/${environment}/*`}`
 );
 console.log(`Region: ${region}\n`);
 
@@ -58,7 +61,9 @@ for (const line of lines) {
 
   const path = isSharedMode
     ? `/github/${owner}/shared/${key}`
-    : `/github/${owner}/${project}/${environment}/${key}`;
+    : environment
+      ? `/github/${owner}/${project}/${environment}/${key}`
+      : `/github/${owner}/${project}/${key}`;
 
   try {
     execFileSync(
