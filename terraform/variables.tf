@@ -10,6 +10,12 @@ variable "github_owner" {
   default     = "nlkomaru"
 }
 
+variable "github_repo_owner" {
+  type        = string
+  description = "GitHub owner exactly as it appears in the OIDC sub claim (case-sensitive, e.g. Nlkomaru)"
+  default     = "Nlkomaru"
+}
+
 variable "role_name" {
   type        = string
   description = "IAM Role name for GitHub Actions"
