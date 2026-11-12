@@ -36,6 +36,10 @@ jobs:
         with:
           env: production
           export-json: ${{ runner.temp }}/worker-secrets.json
+          # Optional: only write these keys to the JSON file (fails if any is missing)
+          export-json-keys: |
+            BETTER_AUTH_SECRET
+            R2_BUCKET_NAME
 ```
 
 ---

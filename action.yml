@@ -33,6 +33,10 @@ inputs:
     description: "Path to export secrets as a JSON file (e.g. runner-temp/secrets.json)"
     required: false
     default: ""
+  export-json-keys:
+    description: "Newline- or comma-separated keys to include in the export-json file (defaults to all keys). Fails if a listed key is missing."
+    required: false
+    default: ""
 
 outputs:
   secrets-json:
@@ -71,6 +75,7 @@ runs:
         TARGET_ENV: ${{ inputs.env }}
         EXPORT_ENV: ${{ inputs.export-env }}
         EXPORT_JSON_PATH: ${{ inputs.export-json }}
+        EXPORT_JSON_KEYS: ${{ inputs.export-json-keys }}
       run: |
         set -euo pipefail
 
@@ -157,7 +162,18 @@ runs:
         # 3. JSON ファイルへのエクスポート (指定時)
         if [ -n "$EXPORT_JSON_PATH" ]; then
           mkdir -p "$(dirname "$EXPORT_JSON_PATH")"
-          echo "$MERGED_JSON" > "$EXPORT_JSON_PATH"
+          if [ -n "$EXPORT_JSON_KEYS" ]; then
+            jq -e --arg keys "$EXPORT_JSON_KEYS" '
+              ($keys | split("[\\s,]+"; null) | map(select(. != ""))) as $wanted
+              | ($wanted - keys) as $missing
+              | if ($missing | length) > 0
+                then error("export-json-keys not found: \($missing | join(", "))")
+                else with_entries(select(.key | IN($wanted[])))
+                end
+            ' <<< "$MERGED_JSON" > "$EXPORT_JSON_PATH"
+          else
+            echo "$MERGED_JSON" > "$EXPORT_JSON_PATH"
+          fi
           echo "Exported secrets JSON to: $EXPORT_JSON_PATH" >&2
         fi
 
