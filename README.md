@@ -19,6 +19,7 @@ Following *The Art of Readable Code* rule that **larger scopes require longer, m
 
 - Parameters placed in `/github/nlkomaru/shared/*` are injected into **every repository** via `GITHUB_ENV`. Give them an explicit prefix and descriptive name so they never collide with generic tool variables or project-local secrets (e.g., use `NIKO_CI_AWS_ACCESS_KEY_ID`, `NIKO_CI_BUCKET_NAME`, `NIKO_CI_S3_URL` instead of `AWS_ACCESS_KEY_ID`, `BUCKET_NAME`, `S3_URL`).
 - Project-specific parameters under `/github/nlkomaru/<project>/*` have a narrow scope and can use concise, standard names expected by the application or CLI.
+- **Cloudflare API Tokens**: `/github/nlkomaru/shared/CLOUDFLARE_API_TOKEN` only has permissions for Workers deployment and **cannot** access per-project resources such as D1. Projects that require D1 or other project-specific Cloudflare permissions should define their own `/github/nlkomaru/<project>/CLOUDFLARE_API_TOKEN` (or `CLOUDFLARE_API_KEY`) to override the shared token.
 
 ---
 
@@ -37,11 +38,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Load secrets directly via secret-manager
+      # Load secrets directly via secret-manager@2
       - name: Load Secrets
-        uses: nlkomaru/secret-manager@main
+        uses: nlkomaru/secret-manager@2
         with:
           env: production
+          # Explicitly list shared keys to load (in v2, shared/* is NOT loaded unless listed here or in keys)
+          shared-keys: |
+            CLOUDFLARE_ACCOUNT_ID
+          # Or use `keys` to restrict ALL exported secrets to an explicit allowlist:
+          # keys: |
+          #   CLOUDFLARE_ACCOUNT_ID
+          #   CLOUDFLARE_API_TOKEN
           export-json: ${{ runner.temp }}/worker-secrets.json
           # Optional: only write these keys to the JSON file (fails if any is missing)
           export-json-keys: |
