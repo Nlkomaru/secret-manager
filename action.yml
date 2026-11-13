@@ -37,6 +37,14 @@ inputs:
     description: "Newline- or comma-separated keys to include in the export-json file (defaults to all keys). Fails if a listed key is missing."
     required: false
     default: ""
+  keys:
+    description: "Newline- or comma-separated keys to load and export (defaults to all project keys; fails if a listed key is missing)."
+    required: false
+    default: ""
+  shared-keys:
+    description: "Newline- or comma-separated keys to load from shared/ and shared/<env>/ (defaults to none unless listed here or in keys)."
+    required: false
+    default: ""
 
 outputs:
   secrets-json:
@@ -76,6 +84,8 @@ runs:
         EXPORT_ENV: ${{ inputs.export-env }}
         EXPORT_JSON_PATH: ${{ inputs.export-json }}
         EXPORT_JSON_KEYS: ${{ inputs.export-json-keys }}
+        KEYS: ${{ inputs.keys }}
+        SHARED_KEYS: ${{ inputs.shared-keys }}
       run: |
         set -euo pipefail
 
@@ -111,13 +121,29 @@ runs:
         }
 
         # 探索するパス階層（後ろが前を上書き）
-        # 1. /github/nlkomaru/shared (全体共通)
-        fetch_params "/github/nlkomaru/shared" "$TMP_DIR/1_shared.json"
+        # v2: shared は shared-keys または keys が指定された場合のみ読み込む
+        if [ -n "$SHARED_KEYS" ] || [ -n "$KEYS" ]; then
+          # 1. /github/nlkomaru/shared (全体共通)
+          fetch_params "/github/nlkomaru/shared" "$TMP_DIR/1_shared.json"
 
-        # 2. /github/nlkomaru/shared/<env> (環境共通)
-        if [ -n "$TARGET_ENV" ]; then
-          fetch_params "/github/nlkomaru/shared/$TARGET_ENV" "$TMP_DIR/2_shared_env.json"
+          # 2. /github/nlkomaru/shared/<env> (環境共通)
+          if [ -n "$TARGET_ENV" ]; then
+            fetch_params "/github/nlkomaru/shared/$TARGET_ENV" "$TMP_DIR/2_shared_env.json"
+          else
+            echo "{}" > "$TMP_DIR/2_shared_env.json"
+          fi
+
+          # shared-keys のみ指定されている場合は shared をそのキーだけに絞る
+          if [ -n "$SHARED_KEYS" ]; then
+            for f in "$TMP_DIR/1_shared.json" "$TMP_DIR/2_shared_env.json"; do
+              jq -c --arg keys "$SHARED_KEYS" '
+                ($keys | split("[\\s,]+"; null) | map(select(. != ""))) as $wanted
+                | with_entries(select(.key | IN($wanted[])))
+              ' "$f" > "${f}.tmp" && mv "${f}.tmp" "$f"
+            done
+          fi
         else
+          echo "{}" > "$TMP_DIR/1_shared.json"
           echo "{}" > "$TMP_DIR/2_shared_env.json"
         fi
 
@@ -137,6 +163,28 @@ runs:
           "$TMP_DIR/2_shared_env.json" \
           "$TMP_DIR/3_project.json" \
           "$TMP_DIR/4_project_env.json")
+
+        # keys が指定されている場合はそのキーだけに絞り、不足があればエラーにする
+        if [ -n "$KEYS" ]; then
+          MERGED_JSON=$(jq -ec --arg keys "$KEYS" '
+            ($keys | split("[\\s,]+"; null) | map(select(. != ""))) as $wanted
+            | ($wanted - keys) as $missing
+            | if ($missing | length) > 0
+              then error("keys not found: \($missing | join(", "))")
+              else with_entries(select(.key | IN($wanted[])))
+              end
+          ' <<< "$MERGED_JSON")
+        elif [ -n "$SHARED_KEYS" ]; then
+          # shared-keys の不足チェック
+          jq -e --arg keys "$SHARED_KEYS" '
+            ($keys | split("[\\s,]+"; null) | map(select(. != ""))) as $wanted
+            | ($wanted - keys) as $missing
+            | if ($missing | length) > 0
+              then error("shared-keys not found: \($missing | join(", "))")
+              else empty
+              end
+          ' <<< "$MERGED_JSON" > /dev/null
+        fi
 
         # 1. ログ伏字（add-mask）処理
         jq -r 'to_entries[] | .value' <<< "$MERGED_JSON" | while IFS= read -r val; do
