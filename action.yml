@@ -106,7 +106,7 @@ runs:
             --region "$AWS_REGION" \
             --path "$target_path" \
             --with-decryption \
-            --output json 2>/dev/null); then
+            --output json); then
             echo "{}" > "$out_file"
             return 0
           fi
@@ -164,6 +164,8 @@ runs:
           "$TMP_DIR/2_shared_env.json" \
           "$TMP_DIR/3_project.json" \
           "$TMP_DIR/4_project_env.json")
+
+        echo "Loaded $(jq 'length' <<< "$MERGED_JSON") parameter(s): $(jq -r 'keys | join(", ")' <<< "$MERGED_JSON")" >&2
 
         # keys が指定されている場合はそのキーだけに絞り、不足があればエラーにする
         if [ -n "$KEYS" ]; then
