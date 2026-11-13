@@ -86,6 +86,9 @@ runs:
         EXPORT_JSON_KEYS: ${{ inputs.export-json-keys }}
         KEYS: ${{ inputs.keys }}
         SHARED_KEYS: ${{ inputs.shared-keys }}
+        # Windows (Git Bash / MSYS2) では /github/... が C:/Program Files/Git/github/... に変換されるのを防ぐ
+        MSYS_NO_PATHCONV: "1"
+        MSYS2_ARG_CONV_EXCL: "*"
       run: |
         set -euo pipefail
 
@@ -199,10 +202,10 @@ runs:
         # Windows (Git Bash + jq.exe) では NUL 区切り + read -d '' が壊れるため、
         # jq で直接 GITHUB_ENV のヒアドキュメント形式を生成する。
         if [ "$EXPORT_ENV" = "true" ]; then
-          delimiter="GHENV_$(openssl rand -hex 16)"
+          delimiter="GHENV_$(openssl rand -hex 16 | tr -d '\r\n')"
           jq -r --arg delim "$delimiter" '
             to_entries[] | "\(.key)<<\($delim)\n\(.value)\n\($delim)"
-          ' <<< "$MERGED_JSON" >> "$GITHUB_ENV"
+          ' <<< "$MERGED_JSON" | tr -d '\r' >> "$GITHUB_ENV"
         fi
 
         # 3. JSON ファイルへのエクスポート (指定時)
@@ -224,7 +227,7 @@ runs:
         fi
 
         # 4. Step output のセット
-        EOF_DELIMITER="$(openssl rand -hex 16)"
+        EOF_DELIMITER="$(openssl rand -hex 16 | tr -d '\r\n')"
         {
           echo "secrets_json<<${EOF_DELIMITER}"
           echo "$MERGED_JSON"
