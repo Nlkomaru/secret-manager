@@ -112,7 +112,8 @@ runs:
           fi
 
           local prefix="${target_path}/"
-          echo "$res" | jq -c --arg prefix "$prefix" '
+          # jq.exe も Windows ネイティブバイナリのため --arg prefix が MSYS2 でパス変換されないよう無効化する
+          echo "$res" | MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL="*" jq -c --arg prefix "$prefix" '
             [ .Parameters[]?
               | select(.Name | startswith($prefix))
               | select((.Name | ltrimstr($prefix) | contains("/") | not))
