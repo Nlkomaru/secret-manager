@@ -86,9 +86,6 @@ runs:
         EXPORT_JSON_KEYS: ${{ inputs.export-json-keys }}
         KEYS: ${{ inputs.keys }}
         SHARED_KEYS: ${{ inputs.shared-keys }}
-        # Windows (Git Bash / MSYS2) では /github/... が C:/Program Files/Git/github/... に変換されるのを防ぐ
-        MSYS_NO_PATHCONV: "1"
-        MSYS2_ARG_CONV_EXCL: "*"
       run: |
         set -euo pipefail
 
@@ -104,7 +101,8 @@ runs:
           echo "Fetching SSM parameters from: $target_path" >&2
 
           local res
-          if ! res=$(aws ssm get-parameters-by-path \
+          # Windows (Git Bash / MSYS2) では /github/... が C:/Program Files/Git/github/... に変換されるのを aws 実行時のみ無効化する
+          if ! res=$(MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL="*" aws ssm get-parameters-by-path \
             --region "$AWS_REGION" \
             --path "$target_path" \
             --with-decryption \
