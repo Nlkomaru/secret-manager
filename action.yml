@@ -181,7 +181,7 @@ runs:
             | ($wanted - keys) as $missing
             | if ($missing | length) > 0
               then error("shared-keys not found: \($missing | join(", "))")
-              else empty
+              else true
               end
           ' <<< "$MERGED_JSON" > /dev/null
         fi
