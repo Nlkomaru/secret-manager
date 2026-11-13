@@ -196,15 +196,13 @@ runs:
         done
 
         # 2. GITHUB_ENV へのエクスポート
+        # Windows (Git Bash + jq.exe) では NUL 区切り + read -d '' が壊れるため、
+        # jq で直接 GITHUB_ENV のヒアドキュメント形式を生成する。
         if [ "$EXPORT_ENV" = "true" ]; then
-          jq -r 'to_entries[] | "\(.key)\u0000\(.value)\u0000"' <<< "$MERGED_JSON" | while IFS= read -d '' -r key && IFS= read -d '' -r val; do
-            delimiter="$(openssl rand -hex 16)"
-            {
-              echo "${key}<<${delimiter}"
-              echo "${val}"
-              echo "${delimiter}"
-            } >> "$GITHUB_ENV"
-          done
+          delimiter="GHENV_$(openssl rand -hex 16)"
+          jq -r --arg delim "$delimiter" '
+            to_entries[] | "\(.key)<<\($delim)\n\(.value)\n\($delim)"
+          ' <<< "$MERGED_JSON" >> "$GITHUB_ENV"
         fi
 
         # 3. JSON ファイルへのエクスポート (指定時)
